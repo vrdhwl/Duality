@@ -6,7 +6,7 @@
 extern "C" void reset_usb_boot(uint32_t usb_activity_gpio_pin_mask, uint32_t disable_interface_mask);
 
 bool ledOn = false;  // current LED state
-uint8_t count = 0;   // counts pressed keys
+int8_t count = 0;   // counts pressed keys
 bool game = 0;
 bool h = 0;
 
@@ -23,9 +23,6 @@ static uint32_t tyme[2][ROWS][COLS] = { { 0 } };
 
 unsigned long now;
 static const unsigned long htyme = 200;  // hold threshold in ms
-static const unsigned long mtyme = 150;  // hold threshold in ms
-
-static uint32_t lastMacroTime[2][ROWS][COLS] = { { 0 } };
 
 void key(bool pressed, uint8_t code);
 void led(uint8_t count);
@@ -100,14 +97,15 @@ static const KeyDef rMap[THREE][ROWS][COLS] = {
     { { 0, 'j', 0 }, { 0, '1', 0 }, { 0, '2', 0 }, { 0, '3', 0 }, { 0, KEY_DELETE, 0 } },
     { { 0, 'm', 0 }, { 1, '4', KEY_LEFT_CTRL }, { 1, '5', KEY_LEFT_SHIFT }, { 1, '6', KEY_LEFT_ALT }, { 0, ';', 0 } },
     { { 0, 'k', 0 }, { 0, '7', 0 }, { 3, '8', M_DOWN }, { 0, '9', 0 }, { 1, KEY_VOLUME, KEY_LEFT_GUI } },
-    {  { 2, KEY_RETURN, ONE },{ 2, ' ', TWO }, { 0, KEY_UP_ARROW, 0 }, { 0, KEY_RIGHT_ARROW, 0 }, { 0, KEY_VOLUME, 0 } } },
+    { { 2, KEY_RETURN, ONE }, { 2, ' ', TWO }, { 0, KEY_UP_ARROW, 0 }, { 0, KEY_RIGHT_ARROW, 0 }, { 0, KEY_VOLUME, 0 } } },
   // TWO
   {
     { { 0, KEY_F7, 0 }, { 0, KEY_F8, 0 }, { 0, KEY_F9, 0 }, { 0, KEY_F10, 0 }, { 0, KEY_F12, 0 } },
-    { { 0, '6', 0 }, { 0, '7',0 }, { 0, '8', 0 }, { 0, '9', 0 }, { 0, KEY_F11, 0 } },
+    { { 0, '6', 0 }, { 0, '7', 0 }, { 0, '8', 0 }, { 0, '9', 0 }, { 0, KEY_F11, 0 } },
     { { 0, 'k', 0 }, { 0, '(', 0 }, { 0, ')', 0 }, { 0, '[', 0 }, { 0, '0', 0 } },
-    {  { 2, KEY_RETURN, ONE },{ 2, ' ', TWO }, { 0, KEY_UP_ARROW, 0 }, { 0, KEY_RIGHT_ARROW, 0 }, { 0, ']', 0 } } }
+    { { 2, KEY_RETURN, ONE }, { 2, ' ', TWO }, { 0, KEY_UP_ARROW, 0 }, { 0, KEY_RIGHT_ARROW, 0 }, { 0, ']', 0 } } }
 };
+
 
 void setup() {
   for (int r = 0; r < ROWS; r++) {
@@ -149,7 +147,7 @@ void loop() {
             state[h][r][c] = true;
             tyme[h][r][c] = now;
             hold[h][r][c] = false;
-            tapSent[h][r][c] = false;
+            tapSent[h][r][c] = false;  // clear quick-tap flag
           } else if (!hold[h][r][c] && now - tyme[h][r][c] >= htyme) {
             key(true, K.alt);
             hold[h][r][c] = true;
@@ -172,7 +170,6 @@ void loop() {
           if (!state[h][r][c]) {
             runMacro(K.alt);
             state[h][r][c] = true;
-            lastMacroTime[h][r][c] = now;   // start repeat timer
           }
         }
       } else {
@@ -191,7 +188,7 @@ void loop() {
                 && !tapSent[h][r][c]) {
               key(true, K.tap);
               key(false, K.tap);
-              tapSent[h][r][c] = true;
+              tapSent[h][r][c] = true;  // prevent repeats
             } else if (hold[h][r][c]) {
               key(false, K.alt);
             }
@@ -213,13 +210,13 @@ void loop() {
             }
             state[h][r][c] = false;
             hold[h][r][c] = false;
+            key(false, false);
           }
         }
         // MACRO release
         else if (K.mode == MACRO) {
           if (state[h][r][c]) {
             state[h][r][c] = false;
-            lastMacroTime[h][r][c] = 0;   // reset timer
           }
         }
       }
@@ -233,7 +230,7 @@ void loop() {
     serial(line);
   }
 
-  // --- Right-half timed hold & layer check (unchanged) ---
+  // --- Right-half timed hold & layer check ---
   now = millis();
   for (uint8_t r = 0; r < ROWS; r++) {
     for (uint8_t c = 0; c < COLS; c++) {
@@ -247,31 +244,16 @@ void loop() {
           hold[1][r][c] = true;
         }
       }
+      // Layer-release on right half
       else if (!state[1][r][c] && hold[1][r][c] && rMap[current][r][c].mode == LAYER_MOD) {
         current = BASE;
         hold[1][r][c] = false;
+        key(false, false);
       }
     }
   }
 
-  // --- Repeating MACROs every 200 ms if still held down ---
-  now = millis();
-  for (uint8_t h = 0; h < 2; h++) {
-    for (uint8_t r = 0; r < ROWS; r++) {
-      for (uint8_t c = 0; c < COLS; c++) {
-        if (state[h][r][c]) {
-          const KeyDef &K = (h == 0 ? lMap[current][r][c] : rMap[current][r][c]);
-          if (K.mode == MACRO
-              && now - lastMacroTime[h][r][c] >= mtyme) {
-            runMacro(K.alt);
-            lastMacroTime[h][r][c] = now;
-          }
-        }
-      }
-    }
-  }
-
-  // --- Bootsel combo check (unchanged) ---
+  // --- Bootsel combo check ---
   if (state[0][0][0]) {
     if (state[0][0][1] && state[0][0][2]) {
       Keyboard.releaseAll();
@@ -282,6 +264,8 @@ void loop() {
         digitalWrite(LED_BUILTIN, i % 2 == 0 ? HIGH : LOW);
         delay(200);
         Keyboard.releaseAll();
+          clearAllKeyState();
+
       }
     }
   }
@@ -355,6 +339,7 @@ void serial(String line) {
           }
           state[h][r][c] = false;
           hold[h][r][c] = false;
+          key(false, false);
         }
       } else if (K.mode == MACRO) {
         if (state[h][r][c]) {
@@ -423,7 +408,7 @@ void runMacro(uint8_t id) {
 }
 
 void key(bool pressed, uint8_t code) {
-  if (!code) {
+  if (code == false) {
     count = 0;
     Keyboard.releaseAll();
     KeyboardBLE.releaseAll();
@@ -438,9 +423,23 @@ void key(bool pressed, uint8_t code) {
       count--;
     }
   }
+  if(count < 0){
+    count = 0;
+  }
   led(count);
 }
 
 void led(uint8_t val) {
   digitalWrite(LED_BUILTIN, val > 0 ? HIGH : LOW);
+}
+
+
+void clearAllKeyState() {
+  for (int h = 0; h < 2; h++)
+    for (int r = 0; r < ROWS; r++)
+      for (int c = 0; c < COLS; c++) {
+        state[h][r][c]   = false;
+        hold[h][r][c]    = false;
+        tapSent[h][r][c] = false;
+      }
 }
