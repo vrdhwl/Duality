@@ -75,7 +75,7 @@ static const KeyDef lMap[THREE][ROWS][COLS] = {
   {
     { { 0, KEY_F1, 0 }, { 0, KEY_END, 0 }, { 0, KEY_F3, 0 }, { 0, KEY_PAGE_UP, 0 }, { 0, KEY_PAGE_DOWN, 0 } },
     { { 0, KEY_HOME, 0 }, { 1, KEY_LEFT_ARROW, KEY_LEFT_ALT }, { 1, KEY_UP_ARROW, KEY_LEFT_SHIFT }, { 1, KEY_RIGHT_ARROW, KEY_LEFT_CTRL }, { 0, KEY_END, 0 } },
-    { { 1, KEY_F11, KEY_LEFT_GUI }, { 0, KEY_F12, 0 }, { 0, KEY_DOWN_ARROW, 0 }, { 3, 0, M_UP }, { 3, 'k', M_SWITCH } },
+    { { 1, KEY_HOME, KEY_LEFT_GUI }, { 0, KEY_F12, 0 }, { 0, KEY_DOWN_ARROW, 0 }, { 3, 0, M_UP }, { 3, 'k', M_SWITCH } },
     { { 0, '`', 0 }, { 0, KEY_TAB, 0 }, { 3, 0, G0 }, { 2, ' ', ONE }, { 2, KEY_BACKSPACE, TWO } } },
   // TWO
   {
