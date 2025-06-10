@@ -1,12 +1,50 @@
 #include <Keyboard.h>
 #include <KeyboardBLE.h>
 #include <Mouse.h>
+#include "pico/stdlib.h"
+#include "hardware/flash.h"
+
+// ---------------------------------------------------------------------------
+// Configuration: flash storage location and size. Must align to flash sector.
+// Offset should be within the flash free region and aligned to 4K.
+// ---------------------------------------------------------------------------
+
+// place this at the top of your sketch:
+static const uint32_t PERSISTENT_DATA_OFFSET = 0x1FF000;  // 2 MiB – 4 KiB
+static const uint32_t PERSISTENT_DATA_SIZE   =   256;     // only 256 B actually used
+
+
+// Buffer to hold bond data
+static uint8_t bond_data[PERSISTENT_DATA_SIZE];
+
+// ---------------------------------------------------------------------------
+// BTStack callback: read persistent bond/device data from flash
+// ---------------------------------------------------------------------------
+extern "C" void platform_read_persistent_device_data(uint8_t * buffer, uint16_t size) {
+  if (size > PERSISTENT_DATA_SIZE) return;
+  // Flash is memory-mapped via XIP: copy directly
+  const uint8_t * flash_ptr = (const uint8_t *)(XIP_BASE + PERSISTENT_DATA_OFFSET);
+  memcpy(buffer, flash_ptr, size);
+}
+
+// ---------------------------------------------------------------------------
+// BTStack callback: write bond/device data to flash
+// ---------------------------------------------------------------------------
+extern "C" void platform_write_persistent_device_data(const uint8_t * buffer, uint16_t size) {
+  if (size > PERSISTENT_DATA_SIZE) return;
+  uint32_t sector_start = PERSISTENT_DATA_OFFSET & ~(FLASH_SECTOR_SIZE - 1);
+  // Erase one sector (4KiB)
+  flash_range_erase(sector_start, FLASH_SECTOR_SIZE);
+  // Program the buffer into flash
+  flash_range_program(PERSISTENT_DATA_OFFSET, buffer, size);
+}
+
 
 // #include <KeyboardBLE.h>
 extern "C" void reset_usb_boot(uint32_t usb_activity_gpio_pin_mask, uint32_t disable_interface_mask);
 
 bool ledOn = false;  // current LED state
-int8_t count = 0;   // counts pressed keys
+int8_t count = 0;    // counts pressed keys
 bool game = 0;
 bool h = 0;
 
@@ -117,11 +155,14 @@ void setup() {
   }
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
+  // Load previous bond keys and identity
+  platform_read_persistent_device_data(bond_data, PERSISTENT_DATA_SIZE);
 
   Serial1.begin(115200);
   Mouse.begin();
-  KeyboardBLE.begin();
-}
+  const char *deviceName = "Duality";
+  const char *hidName    = "Duality by kuro";
+  KeyboardBLE.begin(deviceName, hidName);}
 
 void loop() {
   // --- Left side matrix scan ---
@@ -236,16 +277,16 @@ void loop() {
     for (uint8_t c = 0; c < COLS; c++) {
       if (state[1][r][c] && !hold[1][r][c] && (now - tyme[1][r][c] >= htyme)) {
         KeyDef K = rMap[current][r][c];
-        if (K.mode == HOLD_MOD) {
+        if (K.mode == HOLD_MOD && !game) {
           key(true, K.alt);
           hold[1][r][c] = true;
-        } else if (K.mode == LAYER_MOD) {
+        } else if (K.mode == LAYER_MOD && !game) {
           current = K.alt;
           hold[1][r][c] = true;
         }
       }
       // Layer-release on right half
-      else if (!state[1][r][c] && hold[1][r][c] && rMap[current][r][c].mode == LAYER_MOD) {
+      else if (!state[1][r][c] && hold[1][r][c] && rMap[current][r][c].mode == LAYER_MOD && !game) {
         current = BASE;
         hold[1][r][c] = false;
         key(false, false);
@@ -257,6 +298,7 @@ void loop() {
   if (state[0][0][0]) {
     if (state[0][0][1] && state[0][0][2]) {
       Keyboard.releaseAll();
+      clearAllKeyState();
       reset_usb_boot(0, 0);
     } else if (state[0][0][2] && state[0][0][4]) {
       game = !game;
@@ -264,8 +306,7 @@ void loop() {
         digitalWrite(LED_BUILTIN, i % 2 == 0 ? HIGH : LOW);
         delay(200);
         Keyboard.releaseAll();
-          clearAllKeyState();
-
+        clearAllKeyState();
       }
     }
   }
@@ -423,7 +464,7 @@ void key(bool pressed, uint8_t code) {
       count--;
     }
   }
-  if(count < 0){
+  if (count < 0) {
     count = 0;
   }
   led(count);
@@ -438,8 +479,8 @@ void clearAllKeyState() {
   for (int h = 0; h < 2; h++)
     for (int r = 0; r < ROWS; r++)
       for (int c = 0; c < COLS; c++) {
-        state[h][r][c]   = false;
-        hold[h][r][c]    = false;
+        state[h][r][c] = false;
+        hold[h][r][c] = false;
         tapSent[h][r][c] = false;
       }
 }
